@@ -218,17 +218,12 @@ namespace BaseLog
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
+
                 using (var tx = conn.BeginTransaction())
                 {
-                    // ... codice import che usa conn e tx ...
-                    tx.Commit();
-
-
-
                     var findObj = new SQLiteCommand("SELECT Z_PK FROM ZOBJECT WHERE ZNAME = @name LIMIT 1", conn, tx);
                     findObj.Parameters.Add("@name", DbType.String);
 
-                    // Creazione minimale: Z_PK manuale come MAX+1
                     var newObj = new SQLiteCommand("INSERT INTO ZOBJECT (Z_PK, Z_ENT, Z_OPT, ZNAME, ZISACTIVE) VALUES ((SELECT COALESCE(MAX(Z_PK),0)+1 FROM ZOBJECT), 1, 1, @name, 1);", conn, tx);
                     newObj.Parameters.Add("@name", DbType.String);
 
@@ -256,7 +251,6 @@ namespace BaseLog
 
                         if (!int.TryParse(fields[idxJump]?.Trim(), out int jn)) { skipped++; continue; }
 
-                        // Date CSV yyyy-MM-dd -> Apple seconds (12:00 locali per stabilità)
                         double dateApple;
                         try
                         {
@@ -265,7 +259,6 @@ namespace BaseLog
                         }
                         catch { skipped++; continue; }
 
-                        // Oggetto
                         int objPk = 0;
                         if (idxObject >= 0)
                         {
@@ -290,7 +283,6 @@ namespace BaseLog
 
                         string notes = idxNotes >= 0 ? fields[idxNotes] : null;
 
-                        // Upsert per Jump #
                         findLog.Parameters["@jn"].Value = jn;
                         var logPk = findLog.ExecuteScalar();
                         if (logPk == null || logPk == DBNull.Value)
@@ -314,10 +306,15 @@ namespace BaseLog
                     }
 
                     tx.Commit();
+
+
+
                     MessageBox.Show($"Import completato. Aggiunti: {imported}, Aggiornati: {updated}, Saltati: {skipped}.");
                     LoadSalti();
+
                 }
             }
+
         }
 
         // ===== Helpers =====

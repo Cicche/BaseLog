@@ -1,21 +1,34 @@
 ﻿<Window x:Class="BaseLog.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BaseLog" Height="450" Width="800">
-    <Grid Margin="10">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="2*"/>
-            <ColumnDefinition Width="3*"/>
-        </Grid.ColumnDefinitions>
-
-        <DataGrid Name="dataGridSalti" Grid.Column="0"
-                  AutoGenerateColumns="True"
-                  SelectionChanged="DataGridSalti_SelectionChanged"/>
-
-        <StackPanel Grid.Column="1" Margin="10" >
-            <TextBox Name="txtDettagliSalto" Height="200" IsReadOnly="True" 
-                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-            <Image Name="imageOggetto" Height="200" Margin="0,10,0,0"/>
+        Title="BaseLog" Height="650" Width="1000">
+    <DockPanel LastChildFill="True" Margin="8">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Name="btnImportCsv" Content="Importa CSV" Click="btnImportCsv_Click" Margin="0,0,8,0"/>
+            <Button Name="btnExportCsv" Content="Esporta CSV" Click="btnExportCsv_Click"/>
+            <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding ElementName=txtStatus, Path=Text}"/>
         </StackPanel>
-    </Grid>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="3*"/>
+            </Grid.ColumnDefinitions>
+
+            <DataGrid Name="dataGridSalti"
+                Grid.Column="0"
+                AutoGenerateColumns="True"
+                SelectionChanged="DataGridSalti_SelectionChanged"/>
+
+            <StackPanel Grid.Column="1" Margin="10">
+                <TextBox Name="txtDettagliSalto"
+                 Height="220" IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"/>
+                <Image Name="imageOggetto" Height="260" Margin="0,10,0,0"
+               Stretch="Uniform"/>
+                <TextBlock Name="txtStatus" Margin="0,10,0,0"/>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
 </Window>

@@ -8,7 +8,8 @@
             <Button Name="btnImportCsv" Content="Importa CSV" Click="btnImportCsv_Click" Margin="0,0,8,0"/>
             <Button Name="btnExportCsv" Content="Esporta CSV" Click="btnExportCsv_Click"/>
             <Button Name="btnSavePhoto" Content="Salva foto" Click="btnSavePhoto_Click" Margin="8,0,0,0"/>
-            <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding ElementName=txtStatus, Path=Text}"/>
+            <TextBlock Name="txtStatus"/>
+            <!-- <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding ElementName=txtStatus, Path=Text}"/> -->
         </StackPanel>
         <!-- NUOVA TOOLBAR FILTRI -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -29,52 +30,66 @@
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*"/>
+                <!-- Lista -->
+                <ColumnDefinition Width="5"/>
+                <!-- Splitter -->
                 <ColumnDefinition Width="3*"/>
+                <!-- Dettagli -->
             </Grid.ColumnDefinitions>
 
+            <!-- Sinistra: DataGrid -->
             <DataGrid Name="dataGridSalti"
-                Grid.Column="0"
-                AutoGenerateColumns="True"
-                SelectionChanged="DataGridSalti_SelectionChanged"/>
-            <!-- Colonna destra: Dettagli + Foto + Mappa -->
-            <Grid Grid.Column="1" Margin="10">
+            Grid.Column="0"
+            AutoGenerateColumns="True"
+            SelectionChanged="DataGridSalti_SelectionChanged"/>
+
+            <!-- Splitter verticale -->
+            <GridSplitter Grid.Column="1"
+                Width="5"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                Background="#FFD0D0D0"
+                ResizeBehavior="PreviousAndNext"
+                ShowsPreview="True" />
+
+            <!-- Destra: Dettagli + Foto + Mappa -->
+            <Grid Grid.Column="2" Margin="10">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
+                    
                     <!-- Dettagli -->
                     <RowDefinition Height="Auto"/>
                     <!-- Foto -->
-                    <RowDefinition Height="*"/>
-                    <!-- Mappa: si espande -->
                     <RowDefinition Height="Auto"/>
+                    <!-- Mappa -->
+                    <RowDefinition Height="*"/>
                     <!-- Status -->
+                    <!--  <RowDefinition Height="Auto"/> -->
+                    
                 </Grid.RowDefinitions>
 
-                <TextBox Name="txtDettagliSalto"
-           Grid.Row="0"
-           Height="Auto" IsReadOnly="True"
-           TextWrapping="Wrap"
-           VerticalScrollBarVisibility="Auto"/>
+                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" MaxHeight="220">
+                    <TextBox Name="txtDettagliSalto"
+               IsReadOnly="True"
+               BorderThickness="0"
+               TextWrapping="Wrap"/>
+                </ScrollViewer>
 
                 <Image Name="imageOggetto"
-         Grid.Row="1"
-         Height="260" Margin="0,10,0,10"
-         Stretch="Uniform"/>
+           Grid.Row="1"
+           MaxHeight="260"
+           Margin="0,10,0,10"
+           Stretch="Uniform"/>
 
                 <Border Grid.Row="2" BorderBrush="LightGray" BorderThickness="1">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <wv2:WebView2 x:Name="wbMap2" Grid.Row="0" />
-                        <TextBlock Grid.Row="1" Name="txtMapStatus" Margin="6,6,6,6" Foreground="Gray"/>
-                    </Grid>
+                    <wv2:WebView2 x:Name="wbMap2" />
                 </Border>
 
-                <TextBlock Name="txtStatus"
-             Grid.Row="3" Margin="0,6,0,0"/>
+                <TextBlock x:Name="txtMapStatus"
+           Grid.Row="3"
+           Margin="0,6,0,0"
+           Foreground="Gray"/>
             </Grid>
-
         </Grid>
+
     </DockPanel>
 </Window>

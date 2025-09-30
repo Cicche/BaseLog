@@ -398,5 +398,143 @@ namespace BaseLog
                 return image;
             }
         }
+
+        private void btnSavePhoto_Click(object sender, RoutedEventArgs e)
+        {
+            // Recupera riga selezionata
+            if (!(dataGridSalti.SelectedItem is DataRowView selectedRow))
+            {
+                MessageBox.Show("Seleziona un salto dalla lista.");
+                return;
+            }
+            int saltoID = Convert.ToInt32(selectedRow["id"]);
+
+            // Tenta prima di estrarre i bytes direttamente dal DB per qualità piena
+            byte[] imgBytes = null;
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+                {
+                    conn.Open();
+                    string q = @"
+                SELECT i.ZIMAGE
+                FROM ZLOGENTRY l
+                LEFT JOIN ZOBJECT o ON l.ZOBJECT = o.Z_PK
+                LEFT JOIN ZOBJECTIMAGE i ON o.Z_PK = i.ZOBJECT
+                WHERE l.Z_PK = @id
+                LIMIT 1";
+                    using (var cmd = new SQLiteCommand(q, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", saltoID);
+                        using (var rd = cmd.ExecuteReader())
+                        {
+                            if (rd.Read() && rd["ZIMAGE"] != DBNull.Value)
+                            {
+                                imgBytes = (byte[])rd["ZIMAGE"];
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Se fallisce, ripiega sull’immagine già caricata nel controllo
+            }
+
+            if (imgBytes == null && imageOggetto?.Source != null)
+            {
+                imgBytes = ExtractBytesFromImageSource(imageOggetto.Source as BitmapSource);
+            }
+
+            if (imgBytes == null || imgBytes.Length == 0)
+            {
+                MessageBox.Show("Nessuna immagine disponibile per questo salto.");
+                return;
+            }
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Salva foto",
+                Filter = "JPEG Image (*.jpg)|*.jpg|PNG Image (*.png)|*.png",
+                FileName = $"salto_{saltoID}"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            // Se i bytes sono JPEG/PNG già “buoni”, salvali così; altrimenti ricodifica
+            var ext = System.IO.Path.GetExtension(dlg.FileName)?.ToLowerInvariant();
+            if (LooksLikeImageFile(imgBytes))
+            {
+                File.WriteAllBytes(dlg.FileName, imgBytes);
+            }
+            else
+            {
+                // Ricodifica dalla BitmapImage attuale
+                BitmapSource bmp = imageOggetto.Source as BitmapSource;
+                if (bmp == null)
+                {
+                    // Prova a caricare dai bytes come BitmapImage e ricodificare
+                    using (var ms = new MemoryStream(imgBytes))
+                    {
+                        var bi = new BitmapImage();
+                        bi.BeginInit();
+                        bi.CacheOption = BitmapCacheOption.OnLoad;
+                        bi.StreamSource = ms;
+                        bi.EndInit();
+                        bi.Freeze();
+                        bmp = bi;
+                    }
+                }
+
+                if (bmp == null)
+                {
+                    MessageBox.Show("Impossibile salvare l’immagine.");
+                    return;
+                }
+
+                using (var fs = new FileStream(dlg.FileName, FileMode.Create, FileAccess.Write))
+                {
+                    if (ext == ".png")
+                    {
+                        var enc = new PngBitmapEncoder();
+                        enc.Frames.Add(BitmapFrame.Create(bmp));
+                        enc.Save(fs);
+                    }
+                    else
+                    {
+                        var enc = new JpegBitmapEncoder { QualityLevel = 90 };
+                        enc.Frames.Add(BitmapFrame.Create(bmp));
+                        enc.Save(fs);
+                    }
+                }
+            }
+
+            MessageBox.Show("Foto salvata correttamente.");
+        }
+
+        // Verifica semplice se i primi byte corrispondono a formati immagine comuni (JPEG/PNG)
+        private static bool LooksLikeImageFile(byte[] data)
+        {
+            if (data.Length < 8) return false;
+            // JPEG: FF D8
+            if (data[0] == 0xFF && data[1] == 0xD8) return true;
+            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
+                data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A) return true;
+            return false;
+        }
+
+        // Estrae bytes da un BitmapSource ricodificandolo (PNG per lossless)
+        private static byte[] ExtractBytesFromImageSource(BitmapSource src)
+        {
+            if (src == null) return null;
+            using (var ms = new MemoryStream())
+            {
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(src));
+                enc.Save(ms);
+                return ms.ToArray();
+            }
+        }
+
     }
 }

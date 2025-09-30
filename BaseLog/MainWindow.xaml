@@ -40,30 +40,41 @@
             <Grid Grid.Column="1" Margin="10">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <!-- Dettagli -->
                     <RowDefinition Height="Auto"/>
+                    <!-- Foto -->
                     <RowDefinition Height="*"/>
+                    <!-- Mappa: si espande -->
                     <RowDefinition Height="Auto"/>
+                    <!-- Status -->
                 </Grid.RowDefinitions>
 
                 <TextBox Name="txtDettagliSalto"
-                Grid.Row="0"
-                Height="220" IsReadOnly="True"
-                TextWrapping="Wrap"
-                VerticalScrollBarVisibility="Auto"/>
+           Grid.Row="0"
+           Height="Auto" IsReadOnly="True"
+           TextWrapping="Wrap"
+           VerticalScrollBarVisibility="Auto"/>
 
                 <Image Name="imageOggetto"
-                    Grid.Row="1"
-                    Height="260" Margin="0,10,0,10"
-                    Stretch="Uniform"/>
+         Grid.Row="1"
+         Height="260" Margin="0,10,0,10"
+         Stretch="Uniform"/>
 
                 <Border Grid.Row="2" BorderBrush="LightGray" BorderThickness="1">
-                    <wv2:WebView2 x:Name="wbMap2" />
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <wv2:WebView2 x:Name="wbMap2" Grid.Row="0" />
+                        <TextBlock Grid.Row="1" Name="txtMapStatus" Margin="6,6,6,6" Foreground="Gray"/>
+                    </Grid>
                 </Border>
 
-                <TextBlock Name="txtMapStatus"
-                    Grid.Row="3" Margin="0,6,0,0"
-                    Foreground="Gray"/>
+                <TextBlock Name="txtStatus"
+             Grid.Row="3" Margin="0,6,0,0"/>
             </Grid>
+
         </Grid>
     </DockPanel>
 </Window>

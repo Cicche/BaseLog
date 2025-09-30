@@ -286,7 +286,7 @@ namespace BaseLog
             if (first.HasValue && last.HasValue)
                 range = $" | Dal: {first.Value:yyyy-MM-dd} Al: {last.Value:yyyy-MM-dd}";
 
-            //txtStatus.Text = $"Salti: {count}{range}";
+            txtStatus.Text = $"Salti: {count}{range}";
         }
 
         private static DateTime AppleSecondsToLocal(double secs)

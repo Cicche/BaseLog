@@ -9,6 +9,13 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
+//implementazione Mappa
+//
+using Microsoft.Web.WebView2.Core;
+using System.Net.Http;
+using System.Threading.Tasks;
+//
+
 
 namespace BaseLog
 {
@@ -16,6 +23,7 @@ namespace BaseLog
     {
         private string dbPath = @"C:\Temp\BASELogbook.sqlite";
         private DataTable saltiTable;
+        private DataView saltiView;
 
         public MainWindow()
         {
@@ -35,9 +43,15 @@ namespace BaseLog
             {
                 conn.Open();
                 string query = @"
-                    SELECT Z_PK AS id, CAST(ZDATE AS TEXT) AS ZDATE_TEXT, ZJUMPNUMBER, ZOBJECT
-                    FROM ZLOGENTRY
-                    ORDER BY ZDATE DESC
+                    SELECT l.Z_PK AS id,
+                           CAST(l.ZDATE AS TEXT) AS ZDATE_TEXT,
+                           l.ZJUMPNUMBER,
+                           l.ZOBJECT,
+                           l.ZNOTES,
+                           o.ZNAME AS OggettoNome
+                    FROM ZLOGENTRY l
+                    LEFT JOIN ZOBJECT o ON l.ZOBJECT = o.Z_PK
+                    ORDER BY l.ZDATE DESC
                 ";
 
                 using (var cmd = new SQLiteCommand(query, conn))
@@ -46,7 +60,6 @@ namespace BaseLog
                     saltiTable = new DataTable();
                     adapter.Fill(saltiTable);
 
-                    // Colonna di comodo formattata
                     if (!saltiTable.Columns.Contains("DataFormatted"))
                         saltiTable.Columns.Add("DataFormatted", typeof(string));
 
@@ -56,8 +69,9 @@ namespace BaseLog
                         row["DataFormatted"] = AppleSecondsToDisplayFromText(raw);
                     }
 
-                    dataGridSalti.ItemsSource = saltiTable.DefaultView;
-                    txtStatus.Text = $"Righe: {saltiTable.Rows.Count}";
+                    saltiView = saltiTable.DefaultView;
+                    dataGridSalti.ItemsSource = saltiView;
+                    UpdateStats();
                 }
             }
         }
@@ -71,7 +85,9 @@ namespace BaseLog
             }
         }
 
-        private void ShowDettagliSalto(int saltoID)
+        //private void ShowDettagliSalto(int saltoID)
+        private async void ShowDettagliSalto(int saltoID)
+
         {
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
@@ -123,12 +139,163 @@ namespace BaseLog
                             txtDettagliSalto.Text = "Salto non trovato.";
                             imageOggetto.Source = null;
                         }
+
+                        // Naviga mappa se possibili coordinate e connessione
+                        // Naviga mappa se possibili coordinate e connessione
+                        double lat = 0, lon = 0;
+                        bool hasLat = false, hasLon = false;
+
+                        // Tenta lettura nativa come numerico
+                        try
+                        {
+                            if (reader["ZLATITUDE"] != DBNull.Value)
+                            {
+                                var val = reader["ZLATITUDE"];
+                                if (val is double dlat) { lat = dlat; hasLat = true; }
+                                else if (val is float flat) { lat = flat; hasLat = true; }
+                                else if (val is decimal decLat) { lat = (double)decLat; hasLat = true; }
+                                else
+                                {
+                                    var s = val.ToString()?.Trim();
+                                    if (!string.IsNullOrEmpty(s))
+                                    {
+                                        s = s.Replace(',', '.'); // normalizza separatore decimale
+                                        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+                                        {
+                                            lat = d; hasLat = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if (reader["ZLONGITUDE"] != DBNull.Value)
+                            {
+                                var val = reader["ZLONGITUDE"];
+                                if (val is double dlon) { lon = dlon; hasLon = true; }
+                                else if (val is float flon) { lon = flon; hasLon = true; }
+                                else if (val is decimal decLon) { lon = (double)decLon; hasLon = true; }
+                                else
+                                {
+                                    var s = val.ToString()?.Trim();
+                                    if (!string.IsNullOrEmpty(s))
+                                    {
+                                        s = s.Replace(',', '.'); // normalizza separatore decimale
+                                        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+                                        {
+                                            lon = d; hasLon = true;
+                                        }
+                                    }
+                                }
+                            }
+                           
+                        }
+                        catch
+                        {
+                            hasLat = hasLon = false;
+                        }
+
+                        await LoadMapWebView2Async(hasLat && hasLon, lat, lon);
+
+                        //LoadMapAsync(hasLat && hasLon, lat, lon);
+
+
                     }
                 }
             }
         }
 
-        // ===== CSV Export =====
+        // ========== FILTRI E STATISTICHE ==========
+        private void Filter_Changed(object sender, RoutedEventArgs e)
+        {
+            ApplyFilters();
+        }
+
+        private void btnResetFilters_Click(object sender, RoutedEventArgs e)
+        {
+            if (FindName("dpFrom") is DatePicker dpFrom) dpFrom.SelectedDate = null;
+            if (FindName("dpTo") is DatePicker dpTo) dpTo.SelectedDate = null;
+            if (FindName("txtFilterObject") is TextBox txtFilterObject) txtFilterObject.Text = "";
+            if (FindName("txtFilterNotes") is TextBox txtFilterNotes) txtFilterNotes.Text = "";
+            ApplyFilters();
+        }
+
+        private void ApplyFilters()
+        {
+            if (saltiView == null) return;
+
+            var filters = new List<string>();
+
+            var dpFromCtrl = FindName("dpFrom") as DatePicker;
+            var dpToCtrl = FindName("dpTo") as DatePicker;
+            var txtObj = FindName("txtFilterObject") as TextBox;
+            var txtNotes = FindName("txtFilterNotes") as TextBox;
+
+            if (dpFromCtrl != null && dpFromCtrl.SelectedDate.HasValue)
+            {
+                var startLocal = new DateTime(dpFromCtrl.SelectedDate.Value.Year, dpFromCtrl.SelectedDate.Value.Month, dpFromCtrl.SelectedDate.Value.Day, 0, 0, 0, DateTimeKind.Local);
+                double startApple = DateTimeToAppleSeconds(startLocal);
+                filters.Add($"CONVERT(ZDATE_TEXT, 'System.Double') >= {startApple.ToString(CultureInfo.InvariantCulture)}");
+            }
+            if (dpToCtrl != null && dpToCtrl.SelectedDate.HasValue)
+            {
+                var endLocal = new DateTime(dpToCtrl.SelectedDate.Value.Year, dpToCtrl.SelectedDate.Value.Month, dpToCtrl.SelectedDate.Value.Day, 23, 59, 59, DateTimeKind.Local);
+                double endApple = DateTimeToAppleSeconds(endLocal);
+                filters.Add($"CONVERT(ZDATE_TEXT, 'System.Double') <= {endApple.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            if (txtObj != null && !string.IsNullOrWhiteSpace(txtObj.Text))
+            {
+                string esc = txtObj.Text.Trim().Replace("'", "''");
+                filters.Add($"OggettoNome LIKE '%{esc}%'");
+            }
+
+            if (txtNotes != null && !string.IsNullOrWhiteSpace(txtNotes.Text))
+            {
+                string esc = txtNotes.Text.Trim().Replace("'", "''");
+                filters.Add($"ZNOTES LIKE '%{esc}%'");
+            }
+
+            saltiView.RowFilter = string.Join(" AND ", filters);
+            UpdateStats();
+        }
+
+        private void UpdateStats()
+        {
+            int count = saltiView?.Count ?? 0;
+
+            DateTime? first = null, last = null;
+            if (count > 0)
+            {
+                double minSecs = double.MaxValue;
+                double maxSecs = double.MinValue;
+                foreach (DataRowView rv in saltiView)
+                {
+                    string raw = rv["ZDATE_TEXT"]?.ToString();
+                    string norm = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim().Replace(',', '.');
+                    double secs;
+                    if (double.TryParse(norm, NumberStyles.Float, CultureInfo.InvariantCulture, out secs))
+                    {
+                        if (secs < minSecs) minSecs = secs;
+                        if (secs > maxSecs) maxSecs = secs;
+                    }
+                }
+                if (minSecs != double.MaxValue) first = AppleSecondsToLocal(minSecs);
+                if (maxSecs != double.MinValue) last = AppleSecondsToLocal(maxSecs);
+            }
+
+            string range = "";
+            if (first.HasValue && last.HasValue)
+                range = $" | Dal: {first.Value:yyyy-MM-dd} Al: {last.Value:yyyy-MM-dd}";
+
+            //txtStatus.Text = $"Salti: {count}{range}";
+        }
+
+        private static DateTime AppleSecondsToLocal(double secs)
+        {
+            DateTime appleEpoch = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            return appleEpoch.AddSeconds(Math.Floor(secs)).ToLocalTime();
+        }
+
+        // ========== EXPORT CSV ==========
         private void btnExportCsv_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new SaveFileDialog { Filter = "CSV (*.csv)|*.csv", FileName = "base_logbook_export.csv" };
@@ -158,9 +325,6 @@ namespace BaseLog
                         cmd.Parameters.AddWithValue("@id", id);
                         using (var rd = cmd.ExecuteReader())
                         {
-                            // ...
-
-
                             if (rd.Read())
                             {
                                 string dateCsv = AppleSecondsToDateIso(rd["ZDATE_TEXT"]?.ToString());
@@ -184,6 +348,7 @@ namespace BaseLog
             File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
             MessageBox.Show("Export completato.");
         }
+
         private static string AppleSecondsToDateIso(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "";
@@ -198,8 +363,7 @@ namespace BaseLog
             return dt.ToString("yyyy-MM-dd");
         }
 
-
-        // ===== CSV Import =====
+        // ========== IMPORT CSV ==========
         private void btnImportCsv_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog { Filter = "CSV (*.csv)|*.csv" };
@@ -218,7 +382,6 @@ namespace BaseLog
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
-
                 using (var tx = conn.BeginTransaction())
                 {
                     var findObj = new SQLiteCommand("SELECT Z_PK FROM ZOBJECT WHERE ZNAME = @name LIMIT 1", conn, tx);
@@ -249,7 +412,8 @@ namespace BaseLog
                         var fields = ParseCsvLine(lines[i]);
                         if (fields == null || fields.Length < header.Length) { skipped++; continue; }
 
-                        if (!int.TryParse(fields[idxJump]?.Trim(), out int jn)) { skipped++; continue; }
+                        int jn;
+                        if (!int.TryParse(fields[idxJump]?.Trim(), out jn)) { skipped++; continue; }
 
                         double dateApple;
                         try
@@ -271,7 +435,6 @@ namespace BaseLog
                                 {
                                     newObj.Parameters["@name"].Value = objName;
                                     newObj.ExecuteNonQuery();
-                                    // rileggi PK
                                     findObj.Parameters["@name"].Value = objName;
                                     var created = findObj.ExecuteScalar();
                                     if (created != null && created != DBNull.Value)
@@ -306,102 +469,16 @@ namespace BaseLog
                     }
 
                     tx.Commit();
-
-
-
                     MessageBox.Show($"Import completato. Aggiunti: {imported}, Aggiornati: {updated}, Saltati: {skipped}.");
-                    LoadSalti();
-
                 }
             }
 
+            LoadSalti();
         }
 
-        // ===== Helpers =====
-
-        // Parser CSV semplice con supporto virgolette e doppie virgolette
-        private static string[] ParseCsvLine(string line)
-        {
-            var list = new List<string>();
-            var sb = new StringBuilder();
-            bool inQuotes = false;
-            for (int i = 0; i < line.Length; i++)
-            {
-                char c = line[i];
-                if (inQuotes)
-                {
-                    if (c == '\"')
-                    {
-                        if (i + 1 < line.Length && line[i + 1] == '\"') { sb.Append('\"'); i++; }
-                        else inQuotes = false;
-                    }
-                    else sb.Append(c);
-                }
-                else
-                {
-                    if (c == '\"') inQuotes = true;
-                    else if (c == ',') { list.Add(sb.ToString()); sb.Clear(); }
-                    else sb.Append(c);
-                }
-            }
-            list.Add(sb.ToString());
-            return list.ToArray();
-        }
-
-        private static string CsvEscape(string s)
-        {
-            if (s == null) return "";
-            bool needQuotes = s.Contains(",") || s.Contains("\"") || s.Contains("\n") || s.Contains("\r");
-            var t = s.Replace("\"", "\"\"");
-            return needQuotes ? $"\"{t}\"" : t;
-        }
-
-        private static DateTime DateFromCsv(string s)
-        {
-            if (DateTime.TryParseExact(s?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var d))
-            {
-                return new DateTime(d.Year, d.Month, d.Day, 12, 0, 0, DateTimeKind.Local);
-            }
-            throw new FormatException("Data CSV non valida: " + s);
-        }
-
-        private static double DateTimeToAppleSeconds(DateTime localDateTime)
-        {
-            var utc = localDateTime.Kind == DateTimeKind.Utc ? localDateTime : localDateTime.ToUniversalTime();
-            DateTime appleEpoch = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            return Math.Floor((utc - appleEpoch).TotalSeconds);
-        }
-
-        private static string AppleSecondsToDisplayFromText(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return "N/A";
-            string s = raw.Trim().Replace(',', '.');
-            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double secs))
-                return "N/A";
-            DateTime appleEpoch = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            double floored = Math.Floor(secs);
-            double max = (DateTime.MaxValue - appleEpoch).TotalSeconds;
-            if (floored < 0 || floored > max) return "N/A";
-            return appleEpoch.AddSeconds(floored).ToLocalTime().ToString("g");
-        }
-
-        private BitmapImage LoadImage(byte[] imageData)
-        {
-            using (var ms = new MemoryStream(imageData))
-            {
-                BitmapImage image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.StreamSource = ms;
-                image.EndInit();
-                image.Freeze();
-                return image;
-            }
-        }
-
+        // ========== SALVA FOTO ==========
         private void btnSavePhoto_Click(object sender, RoutedEventArgs e)
         {
-            // Recupera riga selezionata
             if (!(dataGridSalti.SelectedItem is DataRowView selectedRow))
             {
                 MessageBox.Show("Seleziona un salto dalla lista.");
@@ -409,7 +486,6 @@ namespace BaseLog
             }
             int saltoID = Convert.ToInt32(selectedRow["id"]);
 
-            // Tenta prima di estrarre i bytes direttamente dal DB per qualità piena
             byte[] imgBytes = null;
             try
             {
@@ -417,12 +493,12 @@ namespace BaseLog
                 {
                     conn.Open();
                     string q = @"
-                SELECT i.ZIMAGE
-                FROM ZLOGENTRY l
-                LEFT JOIN ZOBJECT o ON l.ZOBJECT = o.Z_PK
-                LEFT JOIN ZOBJECTIMAGE i ON o.Z_PK = i.ZOBJECT
-                WHERE l.Z_PK = @id
-                LIMIT 1";
+                        SELECT i.ZIMAGE
+                        FROM ZLOGENTRY l
+                        LEFT JOIN ZOBJECT o ON l.ZOBJECT = o.Z_PK
+                        LEFT JOIN ZOBJECTIMAGE i ON o.Z_PK = i.ZOBJECT
+                        WHERE l.Z_PK = @id
+                        LIMIT 1";
                     using (var cmd = new SQLiteCommand(q, conn))
                     {
                         cmd.Parameters.AddWithValue("@id", saltoID);
@@ -436,10 +512,7 @@ namespace BaseLog
                     }
                 }
             }
-            catch
-            {
-                // Se fallisce, ripiega sull’immagine già caricata nel controllo
-            }
+            catch { /* fallback */ }
 
             if (imgBytes == null && imageOggetto?.Source != null)
             {
@@ -460,7 +533,6 @@ namespace BaseLog
             };
             if (dlg.ShowDialog() != true) return;
 
-            // Se i bytes sono JPEG/PNG già “buoni”, salvali così; altrimenti ricodifica
             var ext = System.IO.Path.GetExtension(dlg.FileName)?.ToLowerInvariant();
             if (LooksLikeImageFile(imgBytes))
             {
@@ -468,11 +540,9 @@ namespace BaseLog
             }
             else
             {
-                // Ricodifica dalla BitmapImage attuale
                 BitmapSource bmp = imageOggetto.Source as BitmapSource;
                 if (bmp == null)
                 {
-                    // Prova a caricare dai bytes come BitmapImage e ricodificare
                     using (var ms = new MemoryStream(imgBytes))
                     {
                         var bi = new BitmapImage();
@@ -511,19 +581,97 @@ namespace BaseLog
             MessageBox.Show("Foto salvata correttamente.");
         }
 
-        // Verifica semplice se i primi byte corrispondono a formati immagine comuni (JPEG/PNG)
+        // ========== HELPERS ==========
+        private static string[] ParseCsvLine(string line)
+        {
+            var list = new List<string>();
+            var sb = new StringBuilder();
+            bool inQuotes = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (inQuotes)
+                {
+                    if (c == '\"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '\"') { sb.Append('\"'); i++; }
+                        else inQuotes = false;
+                    }
+                    else sb.Append(c);
+                }
+                else
+                {
+                    if (c == '\"') inQuotes = true;
+                    else if (c == ',') { list.Add(sb.ToString()); sb.Clear(); }
+                    else sb.Append(c);
+                }
+            }
+            list.Add(sb.ToString());
+            return list.ToArray();
+        }
+
+        private static string CsvEscape(string s)
+        {
+            if (s == null) return "";
+            bool needQuotes = s.Contains(",") || s.Contains("\"") || s.Contains("\n") || s.Contains("\r");
+            var t = s.Replace("\"", "\"\"");
+            return needQuotes ? $"\"{t}\"" : t;
+        }
+
+        private static DateTime DateFromCsv(string s)
+        {
+            DateTime d;
+            if (DateTime.TryParseExact(s?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out d))
+            {
+                return new DateTime(d.Year, d.Month, d.Day, 12, 0, 0, DateTimeKind.Local);
+            }
+            throw new FormatException("Data CSV non valida: " + s);
+        }
+
+        private static double DateTimeToAppleSeconds(DateTime localDateTime)
+        {
+            var utc = localDateTime.Kind == DateTimeKind.Utc ? localDateTime : localDateTime.ToUniversalTime();
+            DateTime appleEpoch = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            return Math.Floor((utc - appleEpoch).TotalSeconds);
+        }
+
+        private static string AppleSecondsToDisplayFromText(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "N/A";
+            string s = raw.Trim().Replace(',', '.');
+            double secs;
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out secs))
+                return "N/A";
+            DateTime appleEpoch = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            double floored = Math.Floor(secs);
+            double max = (DateTime.MaxValue - appleEpoch).TotalSeconds;
+            if (floored < 0 || floored > max) return "N/A";
+            return appleEpoch.AddSeconds(floored).ToLocalTime().ToString("g");
+        }
+
+        private BitmapImage LoadImage(byte[] imageData)
+        {
+            using (var ms = new MemoryStream(imageData))
+            {
+                BitmapImage image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.StreamSource = ms;
+                image.EndInit();
+                image.Freeze();
+                return image;
+            }
+        }
+
         private static bool LooksLikeImageFile(byte[] data)
         {
-            if (data.Length < 8) return false;
-            // JPEG: FF D8
-            if (data[0] == 0xFF && data[1] == 0xD8) return true;
-            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            if (data == null || data.Length < 8) return false;
+            if (data[0] == 0xFF && data[1] == 0xD8) return true; // JPEG
             if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
-                data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A) return true;
+                data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A) return true; // PNG
             return false;
         }
 
-        // Estrae bytes da un BitmapSource ricodificandolo (PNG per lossless)
         private static byte[] ExtractBytesFromImageSource(BitmapSource src)
         {
             if (src == null) return null;
@@ -535,6 +683,96 @@ namespace BaseLog
                 return ms.ToArray();
             }
         }
+
+        // ========== implementazione Mappa ==========
+        private static async Task<bool> HasInternetAsync(int timeoutMs = 1200)
+        {
+            try
+            {
+                using (var cts = new System.Threading.CancellationTokenSource(timeoutMs))
+                using (var http = new HttpClient() { Timeout = TimeSpan.FromMilliseconds(timeoutMs) })
+                {
+                    var resp = await http.GetAsync("http://www.google.com/generate_204", cts.Token);
+                    return resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.NoContent;
+                }
+            }
+            catch { return false; }
+        }
+
+        // Restituisce un URI file:/// al map.html copiato in output (Assets/map.html)
+        private static Uri GetMapHtmlUri()
+        {
+            string exeDir = AppDomain.CurrentDomain.BaseDirectory; // punta a bin\Debug\…
+            string path = System.IO.Path.Combine(exeDir, "Assets", "map.html");
+            return new Uri(path, UriKind.Absolute); // file:///…/Assets/map.html
+        }
+
+
+
+        // Costruisce URL OpenStreetMap con marker e zoom 15
+        private static string BuildOsmUrl(double lat, double lon, int zoom = 15)
+        {
+            // https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map={zoom}/{lat}/{lon}
+            string latS = lat.ToString("0.000000", CultureInfo.InvariantCulture);
+            string lonS = lon.ToString("0.000000", CultureInfo.InvariantCulture);
+            return $"https://www.openstreetmap.org/?mlat={latS}&mlon={lonS}#map={zoom}/{latS}/{lonS}";
+        }
+
+        private async Task LoadMapWebView2Async(bool hasCoords, double lat, double lon)
+        {
+            if (txtMapStatus != null) txtMapStatus.Text = "";
+            if (wbMap2 == null)
+            {
+                if (txtMapStatus != null) txtMapStatus.Text = "Controllo mappa non disponibile.";
+                return;
+            }
+
+            try
+            {
+                if (wbMap2.CoreWebView2 == null)
+                    await wbMap2.EnsureCoreWebView2Async(); // inizializza Edge runtime
+                                                            // Se vuoi: wbMap2.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            }
+            catch (Exception ex)
+            {
+                wbMap2.NavigateToString($"<html><body style='font-family:sans-serif;color:#555;padding:10px'>Errore inizializzazione WebView2: {System.Net.WebUtility.HtmlEncode(ex.Message)}</body></html>");
+                if (txtMapStatus != null) txtMapStatus.Text = "Errore WebView2";
+                return;
+            }
+
+            bool online = await HasInternetAsync();
+            if (!online)
+            {
+                wbMap2.NavigateToString("<html><body style='font-family:sans-serif;color:#555;padding:10px'>Nessuna connessione Internet.</body></html>");
+                if (txtMapStatus != null) txtMapStatus.Text = "Offline";
+                return;
+            }
+
+            var baseUri = GetMapHtmlUri();
+            if (!File.Exists(baseUri.LocalPath))
+            {
+                wbMap2.NavigateToString("<html><body style='font-family:sans-serif;color:#555;padding:10px'>map.html non trovato in Assets (output).</body></html>");
+                if (txtMapStatus != null) txtMapStatus.Text = "File mancante";
+                return;
+            }
+
+            if (!hasCoords)
+            {
+                wbMap2.Source = new Uri(baseUri + "?zoom=2");
+                if (txtMapStatus != null) txtMapStatus.Text = "Coordinate non disponibili";
+                return;
+            }
+
+            string latS = lat.ToString("0.000000", CultureInfo.InvariantCulture);
+            string lonS = lon.ToString("0.000000", CultureInfo.InvariantCulture);
+            string url = $"{baseUri}?lat={latS}&lon={lonS}&zoom=15";
+            wbMap2.Source = new Uri(url);
+            if (txtMapStatus != null) txtMapStatus.Text = $"Lat {latS}, Lon {lonS}";
+        }
+
+
+
+
 
     }
 }

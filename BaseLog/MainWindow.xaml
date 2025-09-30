@@ -1,6 +1,7 @@
 ﻿<Window x:Class="BaseLog.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="BaseLog" Height="650" Width="1000">
     <DockPanel LastChildFill="True" Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -8,6 +9,21 @@
             <Button Name="btnExportCsv" Content="Esporta CSV" Click="btnExportCsv_Click"/>
             <Button Name="btnSavePhoto" Content="Salva foto" Click="btnSavePhoto_Click" Margin="8,0,0,0"/>
             <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding ElementName=txtStatus, Path=Text}"/>
+        </StackPanel>
+        <!-- NUOVA TOOLBAR FILTRI -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Dal:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <DatePicker Name="dpFrom" SelectedDateChanged="Filter_Changed" Width="130" Margin="0,0,8,0"/>
+            <TextBlock Text="Al:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <DatePicker Name="dpTo" SelectedDateChanged="Filter_Changed" Width="130" Margin="0,0,8,0"/>
+
+            <TextBlock Text="Oggetto:" VerticalAlignment="Center" Margin="8,0,4,0"/>
+            <TextBox Name="txtFilterObject" Width="160" TextChanged="Filter_Changed" Margin="0,0,8,0"/>
+
+            <TextBlock Text="Note:" VerticalAlignment="Center" Margin="8,0,4,0"/>
+            <TextBox Name="txtFilterNotes" Width="180" TextChanged="Filter_Changed" Margin="0,0,8,0"/>
+
+            <Button Content="Reset" Click="btnResetFilters_Click" Margin="8,0,0,0"/>
         </StackPanel>
 
         <Grid>
@@ -20,16 +36,34 @@
                 Grid.Column="0"
                 AutoGenerateColumns="True"
                 SelectionChanged="DataGridSalti_SelectionChanged"/>
+            <!-- Colonna destra: Dettagli + Foto + Mappa -->
+            <Grid Grid.Column="1" Margin="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <StackPanel Grid.Column="1" Margin="10">
                 <TextBox Name="txtDettagliSalto"
-                 Height="220" IsReadOnly="True"
-                 TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto"/>
-                <Image Name="imageOggetto" Height="260" Margin="0,10,0,0"
-               Stretch="Uniform"/>
-                <TextBlock Name="txtStatus" Margin="0,10,0,0"/>
-            </StackPanel>
+                Grid.Row="0"
+                Height="220" IsReadOnly="True"
+                TextWrapping="Wrap"
+                VerticalScrollBarVisibility="Auto"/>
+
+                <Image Name="imageOggetto"
+                    Grid.Row="1"
+                    Height="260" Margin="0,10,0,10"
+                    Stretch="Uniform"/>
+
+                <Border Grid.Row="2" BorderBrush="LightGray" BorderThickness="1">
+                    <wv2:WebView2 x:Name="wbMap2" />
+                </Border>
+
+                <TextBlock Name="txtMapStatus"
+                    Grid.Row="3" Margin="0,6,0,0"
+                    Foreground="Gray"/>
+            </Grid>
         </Grid>
     </DockPanel>
 </Window>

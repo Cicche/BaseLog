@@ -31,6 +31,16 @@ namespace BaseLog
             LoadSalti();
         }
 
+        private void AutoSizeColumns()
+        {
+            foreach (var c in dataGridSalti.Columns)
+            {
+                c.Width = DataGridLength.Auto; // misura header
+                c.Width = new DataGridLength(1, DataGridLengthUnitType.SizeToCells); // misura celle
+            }
+        }
+
+
         private void LoadSalti()
         {
             if (!File.Exists(dbPath))
@@ -43,34 +53,45 @@ namespace BaseLog
             {
                 conn.Open();
                 string query = @"
-                    SELECT l.Z_PK AS id,
-                           CAST(l.ZDATE AS TEXT) AS ZDATE_TEXT,
-                           l.ZJUMPNUMBER,
-                           l.ZOBJECT,
-                           l.ZNOTES,
-                           o.ZNAME AS OggettoNome
-                    FROM ZLOGENTRY l
-                    LEFT JOIN ZOBJECT o ON l.ZOBJECT = o.Z_PK
-                    ORDER BY l.ZDATE DESC
-                ";
+                                  SELECT 
+                                    l.Z_PK               AS id,
+                                    l.ZJUMPNUMBER        AS NumeroSalto,
+                                    CAST(l.ZDATE AS TEXT) AS ZDATE_TEXT,
+                                    o.ZNAME              AS Oggetto,
+                                    jt.ZNAME             AS TipoSalto,
+                                    l.ZNOTES             AS Note
+                                  FROM ZLOGENTRY l
+                                  LEFT JOIN ZOBJECT   o  ON l.ZOBJECT   = o.Z_PK
+                                  LEFT JOIN ZJUMPTYPE jt ON l.ZJUMPTYPE = jt.Z_PK
+                                  ORDER BY l.ZDATE DESC
+                                ";
 
                 using (var cmd = new SQLiteCommand(query, conn))
                 {
-                    SQLiteDataAdapter adapter = new SQLiteDataAdapter(cmd);
+                    var adapter = new SQLiteDataAdapter(cmd);
                     saltiTable = new DataTable();
                     adapter.Fill(saltiTable);
 
-                    if (!saltiTable.Columns.Contains("DataFormatted"))
-                        saltiTable.Columns.Add("DataFormatted", typeof(string));
+                    // Colonna Data formattata per il binding XAML
+                    if (!saltiTable.Columns.Contains("Data"))
+                        saltiTable.Columns.Add("Data", typeof(string));
 
                     foreach (DataRow row in saltiTable.Rows)
                     {
                         string raw = row["ZDATE_TEXT"]?.ToString();
-                        row["DataFormatted"] = AppleSecondsToDisplayFromText(raw);
+                        row["Data"] = AppleSecondsToDisplayFromText(raw);
                     }
+
+                    // Nascondi colonne tecniche non bindate
+                    if (saltiTable.Columns.Contains("id"))
+                        saltiTable.Columns["id"].ColumnMapping = MappingType.Hidden;
+                    if (saltiTable.Columns.Contains("ZDATE_TEXT"))
+                        saltiTable.Columns["ZDATE_TEXT"].ColumnMapping = MappingType.Hidden;
 
                     saltiView = saltiTable.DefaultView;
                     dataGridSalti.ItemsSource = saltiView;
+                    AutoSizeColumns(); // opzionale, se hai aggiunto il metodo
+
                     UpdateStats();
                 }
             }
@@ -207,16 +228,17 @@ namespace BaseLog
         private void Filter_Changed(object sender, RoutedEventArgs e)
         {
             ApplyFilters();
+            AutoSizeColumns();
         }
 
-        private void btnResetFilters_Click(object sender, RoutedEventArgs e)
+        private void btnSearchReset_Click(object sender, RoutedEventArgs e)
         {
-            if (FindName("dpFrom") is DatePicker dpFrom) dpFrom.SelectedDate = null;
-            if (FindName("dpTo") is DatePicker dpTo) dpTo.SelectedDate = null;
-            if (FindName("txtFilterObject") is TextBox txtFilterObject) txtFilterObject.Text = "";
-            if (FindName("txtFilterNotes") is TextBox txtFilterNotes) txtFilterNotes.Text = "";
-            ApplyFilters();
+            if (txtSearch != null) txtSearch.Text = "";
+            if (saltiView != null) saltiView.RowFilter = "";
+            UpdateStats();
+            AutoSizeColumns();
         }
+
 
         private void ApplyFilters()
         {
@@ -255,8 +277,142 @@ namespace BaseLog
             }
 
             saltiView.RowFilter = string.Join(" AND ", filters);
+            AutoSizeColumns();
             UpdateStats();
         }
+
+        private void txtSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplyUnifiedSearch();
+            AutoSizeColumns();
+        }
+        private void ApplyUnifiedSearch()
+        {
+            if (saltiView == null) return;
+
+            string q = txtSearch?.Text?.Trim() ?? "";
+            if (string.IsNullOrEmpty(q))
+            {
+                saltiView.RowFilter = "";
+                UpdateStats();
+                return;
+            }
+
+            // Prova: intervallo numerico "10-20"
+            if (TryParseJumpRange(q, out int jFrom, out int jTo))
+            {
+                saltiView.RowFilter = $"NumeroSalto >= {jFrom} AND NumeroSalto <= {jTo}";
+                UpdateStats();
+                return;
+            }
+
+            // Prova: singolo numero -> NumeroSalto
+            if (int.TryParse(q, out int singleJump))
+            {
+                saltiView.RowFilter = $"NumeroSalto = {singleJump}";
+                UpdateStats();
+                return;
+            }
+
+            // Prova: data singola -> range della giornata
+            if (TryParseSingleDate(q, out DateTime dayStart, out DateTime dayEnd))
+            {
+                double aStart = DateTimeToAppleSeconds(dayStart);
+                double aEnd = DateTimeToAppleSeconds(dayEnd);
+                saltiView.RowFilter = $"CONVERT(ZDATE_TEXT, 'System.Double') >= {aStart.ToString(CultureInfo.InvariantCulture)} AND CONVERT(ZDATE_TEXT, 'System.Double') <= {aEnd.ToString(CultureInfo.InvariantCulture)}";
+                UpdateStats();
+                return;
+            }
+
+            // Prova: intervallo date "2023-01-01..2023-12-31" o con '-'
+            if (TryParseDateRange(q, out DateTime dFrom, out DateTime dTo))
+            {
+                if (dTo < dFrom) (dFrom, dTo) = (dTo, dFrom);
+                // Intero giorno per i capi
+                var start = new DateTime(dFrom.Year, dFrom.Month, dFrom.Day, 0, 0, 0, DateTimeKind.Local);
+                var end = new DateTime(dTo.Year, dTo.Month, dTo.Day, 23, 59, 59, DateTimeKind.Local);
+                double aStart = DateTimeToAppleSeconds(start);
+                double aEnd = DateTimeToAppleSeconds(end);
+                saltiView.RowFilter = $"CONVERT(ZDATE_TEXT, 'System.Double') >= {aStart.ToString(CultureInfo.InvariantCulture)} AND CONVERT(ZDATE_TEXT, 'System.Double') <= {aEnd.ToString(CultureInfo.InvariantCulture)}";
+                UpdateStats();
+                return;
+            }
+
+            // Ricerca testuale su Oggetto, TipoSalto, Note (tutte le parole devono comparire in almeno uno dei campi)
+            var words = q.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var likeParts = new List<string>();
+            foreach (var w in words)
+            {
+                string esc = w.Replace("'", "''");
+                likeParts.Add($"(Oggetto LIKE '%{esc}%' OR TipoSalto LIKE '%{esc}%' OR Note LIKE '%{esc}%')");
+            }
+            saltiView.RowFilter = string.Join(" AND ", likeParts);
+
+            UpdateStats();
+        }
+
+        private bool TryParseJumpRange(string input, out int from, out int to)
+        {
+            from = to = 0;
+            // accetta "10-20" o "10..20" con spazi opzionali
+            var s = input.Replace(" ", "");
+            string[] parts = s.Split(new[] { '-', '–', '—', '.', '…' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 && int.TryParse(parts[0], out int a) && int.TryParse(parts[1], out int b))
+            {
+                from = Math.Min(a, b);
+                to = Math.Max(a, b);
+                return true;
+            }
+            return false;
+        }
+
+        private static readonly string[] DateFormats = new[]
+{
+    "yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy",
+    "dd/MM/yy", "d/M/yy", "dd-MM-yy", "d-M-yy"
+};
+
+        private bool TryParseSingleDate(string input, out DateTime start, out DateTime end)
+        {
+            start = end = default;
+            if (DateTime.TryParseExact(input.Trim(), DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+            {
+                // giornata locale
+                start = new DateTime(d.Year, d.Month, d.Day, 0, 0, 0, DateTimeKind.Local);
+                end = new DateTime(d.Year, d.Month, d.Day, 23, 59, 59, DateTimeKind.Local);
+                return true;
+            }
+            return false;
+        }
+
+        private bool TryParseDateRange(string input, out DateTime from, out DateTime to)
+        {
+            from = to = default;
+            var raw = input.Trim();
+
+            // separatori range supportati: ".." o "-"
+            string[] sepCandidates = { "..", " - ", "-", " to ", "–", "—" };
+            foreach (var sep in sepCandidates)
+            {
+                var parts = raw.Split(new[] { sep }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2)
+                {
+                    if (TryParseAnyDate(parts[0].Trim(), out var d1) && TryParseAnyDate(parts[1].Trim(), out var d2))
+                    {
+                        from = d1;
+                        to = d2;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private bool TryParseAnyDate(string s, out DateTime d)
+        {
+            return DateTime.TryParseExact(s, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+        }
+
 
         private void UpdateStats()
         {

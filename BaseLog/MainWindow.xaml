@@ -3,6 +3,27 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="BaseLog" Height="650" Width="1000">
+    <Window.Resources>
+        <!-- Celle: margine e wrapping base -->
+        <Style x:Key="CellTextStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="4,2"/>
+            <Setter Property="TextWrapping" Value="NoWrap"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Celle lunghe: ellissi se lo spazio non basta -->
+        <Style x:Key="CellTextTrimmingStyle" TargetType="TextBlock" BasedOn="{StaticResource CellTextStyle}">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <!-- Header: bold leggero e margine -->
+        <Style x:Key="HeaderTextStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
+    </Window.Resources>
+
     <DockPanel LastChildFill="True" Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button Name="btnImportCsv" Content="Importa CSV" Click="btnImportCsv_Click" Margin="0,0,8,0"/>
@@ -11,20 +32,15 @@
             <TextBlock Name="txtStatus"/>
             <!-- <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Text="{Binding ElementName=txtStatus, Path=Text}"/> -->
         </StackPanel>
-        <!-- NUOVA TOOLBAR FILTRI -->
+        <!-- Toolbar filtri semplificata -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Dal:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-            <DatePicker Name="dpFrom" SelectedDateChanged="Filter_Changed" Width="130" Margin="0,0,8,0"/>
-            <TextBlock Text="Al:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-            <DatePicker Name="dpTo" SelectedDateChanged="Filter_Changed" Width="130" Margin="0,0,8,0"/>
-
-            <TextBlock Text="Oggetto:" VerticalAlignment="Center" Margin="8,0,4,0"/>
-            <TextBox Name="txtFilterObject" Width="160" TextChanged="Filter_Changed" Margin="0,0,8,0"/>
-
-            <TextBlock Text="Note:" VerticalAlignment="Center" Margin="8,0,4,0"/>
-            <TextBox Name="txtFilterNotes" Width="180" TextChanged="Filter_Changed" Margin="0,0,8,0"/>
-
-            <Button Content="Reset" Click="btnResetFilters_Click" Margin="8,0,0,0"/>
+            <TextBlock Text="Cerca:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox Name="txtSearch"
+           Width="260"
+           Margin="0,0,8,0"
+           TextChanged="txtSearch_TextChanged"
+           ToolTip="Filtra su N° Salti, Data, Oggetto, Tipo salto, Note"/>
+            <Button Content="Reset" Click="btnSearchReset_Click"/>
         </StackPanel>
 
         <Grid>
@@ -37,11 +53,60 @@
                 <!-- Dettagli -->
             </Grid.ColumnDefinitions>
 
-            <!-- Sinistra: DataGrid -->
-            <DataGrid Name="dataGridSalti"
-            Grid.Column="0"
-            AutoGenerateColumns="True"
-            SelectionChanged="DataGridSalti_SelectionChanged"/>
+            <!-- Sinistra: DataGrid con colonne esplicite -->
+            <DataGrid x:Name="dataGridSalti"
+          Grid.Column="0"
+          AutoGenerateColumns="False"
+          IsReadOnly="True"
+          CanUserResizeColumns="True"
+          HeadersVisibility="Column"
+          SelectionChanged="DataGridSalti_SelectionChanged">
+                <DataGrid.Columns>
+
+                    <!-- N° Salti: auto alla cella più larga, con minimo -->
+                    <DataGridTextColumn Header="N° Salti"
+                        Binding="{Binding NumeroSalto}"
+                        Width="SizeToCells"
+                        MinWidth="80"
+                        ElementStyle="{StaticResource CellTextStyle}"
+                        HeaderStyle="{StaticResource HeaderTextStyle}"/>
+
+                    <!-- Data: testo già formattato lato codice -->
+                    <DataGridTextColumn Header="Data"
+                        Binding="{Binding Data}"
+                        Width="SizeToCells"
+                        MinWidth="110"
+                        ElementStyle="{StaticResource CellTextStyle}"
+                        HeaderStyle="{StaticResource HeaderTextStyle}"/>
+
+                    <!-- Oggetto: si adatta ai contenuti ma non oltre, lascia spazio residuo alla Note -->
+                    <DataGridTextColumn Header="Oggetto"
+                        Binding="{Binding Oggetto}"
+                        Width="SizeToCells"
+                        MinWidth="140"
+                        ElementStyle="{StaticResource CellTextTrimmingStyle}"
+                        HeaderStyle="{StaticResource HeaderTextStyle}"/>
+
+                    <!-- Tipo salto: auto -->
+                    <DataGridTextColumn Header="Tipo salto"
+                        Binding="{Binding TipoSalto}"
+                        Width="SizeToCells"
+                        MinWidth="120"
+                        ElementStyle="{StaticResource CellTextTrimmingStyle}"
+                        HeaderStyle="{StaticResource HeaderTextStyle}"/>
+
+                    <!-- Note: riempie lo spazio residuo -->
+                    <DataGridTextColumn Header="Note"
+                        Binding="{Binding Note}"
+                        Width="*"
+                        MinWidth="180"
+                        ElementStyle="{StaticResource CellTextTrimmingStyle}"
+                        HeaderStyle="{StaticResource HeaderTextStyle}"/>
+
+                </DataGrid.Columns>
+            </DataGrid>
+
+
 
             <!-- Splitter verticale -->
             <GridSplitter Grid.Column="1"

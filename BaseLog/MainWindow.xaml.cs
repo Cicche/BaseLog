@@ -926,9 +926,5 @@ namespace BaseLog
             if (txtMapStatus != null) txtMapStatus.Text = $"Lat {latS}, Lon {lonS}";
         }
 
-
-
-
-
     }
 }
